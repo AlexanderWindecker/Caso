@@ -1,0 +1,6 @@
+/.playwright-mcp/
+/respaldo-navegador-recuperacion.txt
+/.codex/
+/.agents/
+/.aws/
+*.log

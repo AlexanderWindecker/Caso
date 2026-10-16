@@ -1,0 +1,16 @@
+dist/
+site.tar.gz
+node_modules/
+dist/
+.env*
+!.env.example
+*.tar.gz
+.sites-local/
+data/
+recovery/
+/*.docx
+/captura-interfaz.png
+/worker/
+/scripts/inspect-recovery.mjs
+/scripts/recover-snapshots.mjs
+/scripts/restore-recovered.mjs
