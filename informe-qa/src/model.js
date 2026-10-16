@@ -1,3 +1,4 @@
+import {defaultTemplate,templateFor,templateFields,caseFieldActive,visibleField,displayField,validateTemplate,validateCustomValues} from './templates.js';
 export const sections = [
   { title: 'Identificación del caso', fields: [['name','Nombre del caso'],['module','Módulo / Funcionalidad'],['type','Tipo de caso','select','Positivo|Negativo|Alternativo']] },
   { title: 'Objetivo del caso', fields: [['objective','Objetivo funcional','area']] },
@@ -17,20 +18,21 @@ export function bugEvidence(entry){const seen=new Set();return [...entry.evidenc
 export function reportEvidenceGroups(report){return [...report.cases,...(report.bugs||[])].flatMap(entry=>[entry.evidence,...(entry.bug?.evidence?[entry.bug.evidence]:[])]);}
 export function fieldVisible(record,key){return !record.omittedFields?.[key]&&String(record[key]??'').trim()!=='';}
 export function reportSections(report,c){
-  return sections.map((section,i)=>{
-    let fields=section.fields.map(([key,label])=>({key,label,value:c[key]})).filter(f=>fieldVisible(c,f.key));
-    if(i===0){fields=[{key:'id',label:'ID del Caso',value:c.id},...fields];if(!fieldVisible(c,'id'))fields=fields.filter(f=>f.key!=='id');fields.push(...[['app','Aplicación / Sistema'],['environment','Ambiente'],['version','Versión / Release']].filter(([key])=>fieldVisible(report,key)).map(([key,label])=>({key,label,value:report[key]})));}
-    if(i===7&&c.automation==='No Aplica')fields=fields.filter(f=>f.key==='automation');
-    return {number:i+1,title:section.title,fields,evidence:i===6?c.evidence:[]};
+  return templateFor(report).case.sections.map((section,i)=>{
+    let fields=section.fields.filter(f=>visibleField(c,f)&&caseFieldActive(report,c,f)).map(f=>({...f,value:displayField(c,f)}));
+    if(section.id==='identification')fields.push(...[['app','Aplicación / Sistema'],['environment','Ambiente'],['version','Versión / Release']].filter(([key])=>fieldVisible(report,key)).map(([key,label])=>({key,label,value:report[key]})));
+    return {number:i+1,title:section.title,fields,evidence:section.evidence?c.evidence:[]};
   }).filter(s=>s.fields.length||s.evidence.length);
 }
+export function bugReportSections(report,c){return templateFor(report).bug.sections.map((s,i)=>({number:i+1,title:s.title,fields:s.fields.filter(f=>visibleField(c,f,'bug')).map(f=>({...f,value:displayField(c,f,'bug')})),evidence:s.evidence?bugEvidence(c):[]})).filter(s=>s.fields.length||s.evidence.length);}
 export function newCase(number=1) {
   return { uid:crypto.randomUUID(),id:'CP-'+String(number).padStart(3,'0'),...Object.fromEntries(textFields.map(k=>[k,''])),type:'Positivo',result:'Pendiente',automation:'Por evaluar',context:'',evidence:[],selected:true,reviewed:false,omittedFields:{},bug:newBug() };
 }
-export function newReport() {
-  return { uid:crypto.randomUUID(),title:'Informe de pruebas',app:'',environment:'QA',version:'',author:'',created:new Date().toISOString(),updated:new Date().toISOString(),cases:[newCase()],omittedFields:{},favorite:false,bugs:[] };
+export function newReport(template=defaultTemplate()) {
+  return { uid:crypto.randomUUID(),title:'Informe de pruebas',app:'',environment:'QA',version:'',author:'',ticket:'',created:new Date().toISOString(),updated:new Date().toISOString(),cases:[newCase()],omittedFields:{},favorite:false,bugs:[],template:structuredClone(template) };
 }
-export function completion(c) {
+export function completion(c,report) {
+  if(report){const fields=templateFields(report),mandatory=fields.filter(f=>f.required&&caseFieldActive(report,c,f)),tracked=mandatory.length?mandatory:fields.filter(f=>caseFieldActive(report,c,f)&&(['name','objective','preconditions','testData','steps','expected','actual','result'].includes(f.key)||f.key.startsWith('custom_'))&&!c.omittedFields?.[f.key]);return tracked.length?Math.round(tracked.filter(f=>visibleField(c,f)&&(f.key!=='result'||c.result!=='Pendiente')).length*100/tracked.length):100;}
   const required=['name','objective','preconditions','testData','steps','expected','actual','result'].filter(k=>!c.omittedFields?.[k]);
   return required.length?Math.round(required.filter(k=>fieldVisible(c,k)&&(k!=='result'||c.result!=='Pendiente')).length*100/required.length):100;
 }
@@ -43,22 +45,24 @@ export function cleanAnalysis(raw) {
 export function validateBackup(data) {
   if(data?.format!=='caso-qa-v1'||!Array.isArray(data.reports)||data.reports.length>100) throw new Error('El archivo no es un respaldo válido de Caso.');
   for(const r of data.reports) {
+    if(r?.template!==undefined)validateTemplate(r.template);
     if(r?.favorite!==undefined&&typeof r.favorite!=='boolean')throw new Error('El respaldo contiene una opción de favorito inválida.');
     for(const record of [r,...(Array.isArray(r?.cases)?r.cases:[])])if(record?.omittedFields!==undefined&&(!record.omittedFields||typeof record.omittedFields!=='object'||Array.isArray(record.omittedFields)||Object.values(record.omittedFields).some(v=>typeof v!=='boolean')))throw new Error('El respaldo contiene opciones de omisión inválidas.');
     if(!r||typeof r.uid!=='string'||typeof r.title!=='string'||typeof r.updated!=='string'||!Array.isArray(r.cases)||!r.cases.length||r.cases.length>500) throw new Error('El respaldo contiene un informe inválido.');
     if(r.bugs!==undefined&&(!Array.isArray(r.bugs)||r.bugs.length>500))throw new Error('El respaldo contiene una lista de bugs inválida.');
     for(const b of r.bugs||[]){if(!b||typeof b.uid!=='string'||typeof b.id!=='string'||typeof b.steps!=='string'||!b.bug)throw new Error('El respaldo contiene un bug independiente inválido.');validateBug(b.bug);validateEvidence(b.evidence);}
+    if(r.ticket!==undefined&&typeof r.ticket!=='string')throw new Error('El respaldo contiene un ticket inválido.');
     for(const key of ['app','environment','version','author','created']) if(typeof r[key]!=='string') throw new Error('El respaldo contiene datos de informe inválidos.');
     for(const c of r.cases) {
-      if(c?.bug!==undefined)validateBug(c.bug);
+      if(c?.bug!==undefined)validateBug(c.bug);validateCustomValues(c);
       if(!c||typeof c.uid!=='string'||typeof c.id!=='string'||typeof c.selected!=='boolean'||typeof c.reviewed!=='boolean'||!Array.isArray(c.evidence)||c.evidence.length>20) throw new Error('El respaldo contiene un caso inválido.');
       if(typeof c.context!=='string') throw new Error('El respaldo contiene una descripción inválida.');
       for(const k of textFields) if(typeof c[k]!=='string') throw new Error('El respaldo contiene campos inválidos.');
-      if(!['Positivo','Negativo','Alternativo'].includes(c.type)||!['Pendiente','OK','KO'].includes(c.result)||!['Por evaluar','Aplica','No Aplica'].includes(c.automation)) throw new Error('El respaldo contiene estados inválidos.');
+      if([c.type,c.result,c.automation].some(v=>typeof v!=='string')||!r.template&&(!['Positivo','Negativo','Alternativo'].includes(c.type)||!['Pendiente','OK','KO'].includes(c.result)||!['Por evaluar','Aplica','No Aplica'].includes(c.automation)))throw new Error('El respaldo contiene estados inválidos.');
       for(const e of c.evidence) if(typeof e.uid!=='string'||typeof e.name!=='string'||typeof e.caption!=='string'||typeof e.data!=='string'||!/^data:image\/(png|jpeg);base64,[a-zA-Z0-9+/=]+$/.test(e.data)) throw new Error('El respaldo contiene una imagen inválida.');
     }
   }
   return data.reports;
 }
-function validateBug(bug){if(!bug||typeof bug!=='object'||typeof bug.enabled!=='boolean'||bugFields.some(([key])=>typeof bug[key]!=='string')||!['','Bloqueante','Crítica','Alta','Media','Baja'].includes(bug.severity)||!['','Urgente','Alta','Media','Baja'].includes(bug.priority))throw new Error('El respaldo contiene datos de bug inválidos.');if(bug.evidence!==undefined)validateEvidence(bug.evidence);}
+function validateBug(bug){if(!bug||typeof bug!=='object'||typeof bug.enabled!=='boolean'||bugFields.some(([key])=>typeof bug[key]!=='string'))throw new Error('El respaldo contiene datos de bug inválidos.');validateCustomValues(bug);if(bug.evidence!==undefined)validateEvidence(bug.evidence);}
 function validateEvidence(list){if(!Array.isArray(list)||list.length>20)throw new Error('El respaldo contiene una lista de evidencias inválida.');for(const e of list)if(!e||typeof e.uid!=='string'||typeof e.name!=='string'||typeof e.caption!=='string'||typeof e.data!=='string'||!/^data:image\/(png|jpeg);base64,[a-zA-Z0-9+/=]+$/.test(e.data))throw new Error('El respaldo contiene una imagen inválida.');}
