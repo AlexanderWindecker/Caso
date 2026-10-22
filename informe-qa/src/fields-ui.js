@@ -1,6 +1,6 @@
 import {fieldValue} from './templates.js';
 export function renderTemplateField(entry,f,{escape,kind='case',omit=false}={}){
-  const value=fieldValue(entry,f,kind),record=kind==='bug'&&f.key!=='steps'?entry.bug:entry,omitted=!f.required&&!!record.omittedFields?.[f.key],attr=kind==='bug'?'data-bug-field':'data-field',id=kind+'-field-'+f.key,disabled=omitted?'disabled':'',required=f.required?'aria-required="true"':'';
+  const value=fieldValue(entry,f,kind),record=kind==='bug'?entry.bug:entry,omitted=!f.required&&!!record.omittedFields?.[f.key],attr=kind==='bug'?'data-bug-field':'data-field',id=kind+'-field-'+f.key,disabled=omitted?'disabled':'',required=f.required?'aria-required="true"':'';
   let input;
   if(f.type==='select'){const options=[...f.options];if(value&&!options.includes(value))options.unshift(value);if(!options.includes(''))options.unshift('');input=`<select id="${id}" ${attr}="${f.key}" ${disabled} ${required}>${options.map(v=>`<option value="${escape(v)}" ${v===value?'selected':''}>${escape(v||'Seleccionar…')}</option>`).join('')}</select>`;}
   else if(f.type==='textarea')input=`<textarea id="${id}" ${attr}="${f.key}" rows="${f.key==='steps'?4:3}" ${disabled} ${required}>${escape(value)}</textarea>`;

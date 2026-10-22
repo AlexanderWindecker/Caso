@@ -1,5 +1,6 @@
 import {Document,Packer,Paragraph,TextRun,HeadingLevel,ImageRun,Header,Footer,AlignmentType,PageNumber} from 'docx';
 import {fieldVisible,reportSections,bugReportSections,bugEntries} from './model.js';
+import {bugTicket} from './bug-ticket.js';
 import {requiredMissing,templateFields} from './templates.js';
 const value=v=>String(v??'');
 const line=(label,v)=>new Paragraph({spacing:{after:110},children:[new TextRun({text:label+': ',bold:true}),new TextRun(value(v))]});
@@ -19,6 +20,7 @@ export async function createWord(report,{dimensions=imageSize}={}) {
       content.push(heading(`${n}.${section.number}  ${section.title}`));
       for(const field of section.fields){
         if(field.key==='steps'&&field.type==='textarea'){for(const [j,step] of value(field.value).split('\n').filter(s=>s.trim()).entries())content.push(line(`Paso ${j+1}`,step.replace(/^(?:paso\s*)?\d+[.):\-]\s*/i,'')));}
+        else if(['expected','actual'].includes(field.key)&&['¿Qué debería ocurrir?','¿Qué ocurrió durante la prueba?'].includes(field.label))content.push(...paragraphs(field.value));
         else if(field.type==='textarea')content.push(line(field.label,field.value));
         else content.push(line(field.key==='automation'?'Aplicabilidad':field.label,field.value));
       }
@@ -35,9 +37,12 @@ export async function createBugWord(report,{caseUid,dimensions=imageSize}={}){
   const cases=bugEntries(report).filter(c=>!caseUid||c.uid===caseUid);
   if(!cases.length)throw new Error('Marcá un caso como Bug o creá un bug independiente para exportar.');
   const missing=requiredMissing(report,cases,'bug');if(missing.length)throw new Error('Completá los campos obligatorios: '+missing.join(', '));
-  const title='Reporte de bugs — '+report.title,content=[heading(title,HeadingLevel.TITLE),new Paragraph({text:'REPORTE DE BUGS',spacing:{after:300}}),...[['app','Aplicación / Sistema'],['environment','Ambiente'],['version','Versión / Release'],['author','Responsable'],['ticket','Ticket']].filter(([key])=>fieldVisible(report,key)).map(([key,label])=>line(label,report[key])),line('Fecha',new Date(report.updated).toLocaleDateString('es-AR')),new Paragraph({text:`${cases.length} bug(s) reportado(s)`,spacing:{after:300}})];
+  const title='Reporte de bugs — '+report.title,content=[heading(title,HeadingLevel.TITLE),new Paragraph({text:'REPORTE DE BUGS',spacing:{after:300}}),...[['app','Aplicación / Sistema'],['environment','Ambiente'],['version','Versión / Release'],['author','Responsable']].filter(([key])=>fieldVisible(report,key)).map(([key,label])=>line(label,report[key])),line('Fecha',new Date(report.updated).toLocaleDateString('es-AR')),new Paragraph({text:`${cases.length} bug(s) reportado(s)`,spacing:{after:300}})];
+  const tickets=[...new Set(cases.map(c=>bugTicket(report,c)).filter(t=>t.trim()))];if(tickets.length)content.push(line('Ticket relacionado',tickets.join(' · ')));
   for(const [i,c] of cases.entries()){
     const bug=c.bug;content.push(new Paragraph({text:`${i+1}  ${templateFields(report,'bug').some(f=>f.key==='title')&&bug.title.trim()||'BUG — '+c.id}`,heading:HeadingLevel.HEADING_1,pageBreakBefore:true}),line(c.standalone?'ID del Bug':'Caso de origen',c.id));
+    const ticket=bugTicket(report,c);if(ticket.trim())content.push(line('Ticket relacionado',ticket));
+    if(bug.component?.trim())content.push(line('Componente',bug.component));
     for(const section of bugReportSections(report,c)){
       content.push(heading(section.title));
       for(const f of section.fields){if(f.key==='steps'&&f.type==='textarea'){for(const [j,step] of f.value.split('\n').filter(s=>s.trim()).entries())content.push(line(`Paso ${j+1}`,step.replace(/^(?:paso\s*)?\d+[.):\-]\s*/i,'')));}else content.push(line(f.label,f.value));}
@@ -46,7 +51,8 @@ export async function createBugWord(report,{caseUid,dimensions=imageSize}={}){
   }
   return packDocument(report,content,title,'Reporte independiente de bugs');
 }
-function packDocument(report,content,title,description){
-  const doc=new Document({creator:fieldVisible(report,'author')?report.author:'Caso',title,description,styles:{default:{document:{run:{font:'Calibri',size:22},paragraph:{spacing:{after:120}}}},paragraphStyles:[{id:'Heading1',name:'Heading 1',basedOn:'Normal',next:'Normal',quickFormat:true,run:{size:32,bold:true,color:'162F35'}},{id:'Heading2',name:'Heading 2',basedOn:'Normal',next:'Normal',quickFormat:true,run:{size:25,bold:true,color:'246D64'}}]},sections:[{properties:{page:{margin:{top:1000,bottom:1000,left:1100,right:1100}}},headers:{default:new Header({children:[new Paragraph({text:['app','version'].filter(key=>fieldVisible(report,key)).map(key=>report[key]).join('  ·  ')||'Informe QA',style:'Caption'})]})},footers:{default:new Footer({children:[new Paragraph({alignment:AlignmentType.RIGHT,children:[new TextRun('Página '),new TextRun({children:[PageNumber.CURRENT]})]})]})},children:content}]});
+function packDocument(report,content,title,description,{headerText,creator}={}){
+  const doc=new Document({creator:creator??(fieldVisible(report,'author')?report.author:'Caso'),title,description,styles:{default:{document:{run:{font:'Calibri',size:22},paragraph:{spacing:{after:120}}}},paragraphStyles:[{id:'Heading1',name:'Heading 1',basedOn:'Normal',next:'Normal',quickFormat:true,run:{size:32,bold:true,color:'162F35'}},{id:'Heading2',name:'Heading 2',basedOn:'Normal',next:'Normal',quickFormat:true,run:{size:25,bold:true,color:'246D64'}}]},sections:[{properties:{page:{margin:{top:1000,bottom:1000,left:1100,right:1100}}},headers:{default:new Header({children:[new Paragraph({text:headerText??(['app','version'].filter(key=>fieldVisible(report,key)).map(key=>report[key]).join('  ·  ')||'Informe QA'),style:'Caption'})]})},footers:{default:new Footer({children:[new Paragraph({alignment:AlignmentType.RIGHT,children:[new TextRun('Página '),new TextRun({children:[PageNumber.CURRENT]})]})]})},children:content}]});
   return Packer.toBlob(doc);
 }
+export {packDocument,imageSize,bytes,line,paragraphs,heading};

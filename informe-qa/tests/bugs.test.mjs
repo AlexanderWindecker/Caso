@@ -5,6 +5,18 @@ import {mkdtemp} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {newReport,newCase,newBug,newStandaloneBug,bugEvidence,validateBackup} from '../src/model.js';
+import {setFieldValue,fieldValue} from '../src/templates.js';
+
+test('Pasos editados del bug se guardan y exportan sin cambiar los del caso',async()=>{
+  const {r,c}=setup(),f={key:'steps'};const original=c.steps;
+  assert.equal(fieldValue(c,f,'bug'),original);setFieldValue(c,f,'PASO PROPIO DEL BUG','bug');assert.equal(c.steps,original);
+  c.steps='PASO NUEVO DEL CASO';assert.equal(fieldValue(c,f,'bug'),'PASO PROPIO DEL BUG');
+  let output=await unpack(await createBugWord(r));assert.ok(output.xml.includes('PASO PROPIO DEL BUG'));assert.ok(!output.xml.includes('PASO NUEVO DEL CASO'));
+  const root=await mkdtemp(join(tmpdir(),'caso-bug-steps-'));const store=new ReportStore(root);await store.write(r);const reopened=await new ReportStore(root).get(r.uid);assert.equal(reopened.cases[0].bug.steps,'PASO PROPIO DEL BUG');assert.equal(validateBackup({format:'caso-qa-v1',reports:[reopened]}).length,1);
+  setFieldValue(c,f,'','bug');output=await unpack(await createBugWord(r));assert.ok(!output.xml.includes('PASO NUEVO DEL CASO'));assert.ok(!output.xml.includes('PASO PROPIO DEL BUG'));
+  delete c.bug.steps;assert.equal(fieldValue(c,f,'bug'),c.steps);output=await unpack(await createBugWord(r));assert.ok(output.xml.includes('PASO NUEVO DEL CASO'));
+  c.bug.steps=123;assert.throws(()=>validateBackup({format:'caso-qa-v1',reports:[r]}),/pasos de bug/);
+});
 import {createBugWord,createWord} from '../src/document.js';
 import {ReportStore} from '../scripts/report-store.mjs';
 const png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=';
