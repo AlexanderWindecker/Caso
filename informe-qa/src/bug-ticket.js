@@ -1,2 +1,2 @@
 export function bugTicket(report,entry){return String(entry.bug?.ticket??(report.omittedFields?.ticket?'':report.ticket||''));}
-export function knownTickets(reports){return [...new Set(reports.flatMap(r=>[r.ticket,...r.cases.map(c=>c.bug?.ticket),...(r.bugs||[]).map(b=>b.bug?.ticket),...(r.retests||[]).map(t=>t.ticket)]).filter(t=>typeof t==='string'&&t.trim()).map(t=>t.trim()))].sort((a,b)=>a.localeCompare(b));}
+export function knownTickets(reports){return [...new Set(reports.flatMap(r=>[r.ticket,...r.cases.flatMap(c=>[c.bug?.ticket,...(c.additionalBugs||[]).map(b=>b.ticket)]),...(r.bugs||[]).map(b=>b.bug?.ticket),...(r.retests||[]).map(t=>t.ticket)]).filter(t=>typeof t==='string'&&t.trim()).map(t=>t.trim()))].sort((a,b)=>a.localeCompare(b));}

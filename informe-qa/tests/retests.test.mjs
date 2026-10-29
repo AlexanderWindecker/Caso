@@ -20,7 +20,7 @@ test('Restaurar respaldo conserva el vínculo con los nuevos identificadores de 
 
 test('Retesteo copia el bug y crea intentos independientes sin reutilizar evidencias',()=>{
   const {report,c}=setup(),source=retestSources(report)[0],first=newRetest(report,source);report.retests.push(first);
-  assert.equal(first.steps,'PASO PROPIO DEL BUG');assert.equal(first.expected,c.bug.expected);assert.equal(first.ticket,'JIRA-123');assert.equal(first.sourceId,c.id);assert.equal(first.attempt,1);assert.deepEqual(first.evidence,[]);assert.equal(first.originalEvidenceCount,1);
+  assert.equal(first.steps,'PASO PROPIO DEL BUG');assert.equal(first.expected,c.bug.expected);assert.equal(first.ticket,'JIRA-123');assert.equal(first.sourceId,c.id);assert.equal(first.attempt,1);assert.deepEqual(first.evidence,[]);assert.equal(first.originalEvidenceCount,0);
   first.steps='PASOS ADAPTADOS';first.actual='Persiste en 1.0';first.status='Persiste';first.evidence.push(image('Captura del primer intento'));report.version='1.1';
   const second=newRetest(report,null,first);report.retests.push(second);assert.equal(second.attempt,2);assert.equal(second.groupUid,first.groupUid);assert.equal(second.version,'1.1');assert.equal(second.steps,'PASOS ADAPTADOS');assert.equal(second.actual,'');assert.equal(second.status,'Pendiente');assert.deepEqual(second.evidence,[]);
   c.bug.title='Título modificado después';c.bug.steps='Otros pasos';assert.equal(first.bugTitle,'BUG DE ORIGEN');assert.equal(second.bugTitle,'BUG DE ORIGEN');assert.equal(first.steps,'PASOS ADAPTADOS');assert.equal(c.steps,'PASO DEL CASO');validateRetests(report.retests);

@@ -1,5 +1,7 @@
-import {defaultTemplate,templateFor,templateFields,caseFieldActive,visibleField,displayField,validateTemplate,validateCustomValues} from './templates.js';
+import {defaultTemplate,templateFor,templateFields,caseFieldActive,visibleField,displayField,validateTemplate,validateCustomValues,applyTemplateDefaults} from './templates.js';
+import {caseBugEntries} from './case-bugs.js';
 import {validateRetests} from './retests.js';
+import {validateAlmFields} from './alm-fields.js';
 export const sections = [
   { title: 'Identificación del caso', fields: [['name','Nombre del caso'],['module','Módulo / Funcionalidad'],['type','Tipo de caso','select','Positivo|Negativo|Alternativo']] },
   { title: 'Objetivo del caso', fields: [['objective','Objetivo funcional','area']] },
@@ -12,11 +14,11 @@ export const sections = [
 ];
 export const textFields = ['name','module','objective','preconditions','role','existingData','dependencies','testData','steps','expected','actual','rules','validations','edgeCases'];
 export const bugFields=[['title','Título'],['description','Descripción','area'],['expected','Resultado esperado','area'],['actual','Resultado obtenido','area'],['severity','Severidad','select','|Bloqueante|Crítica|Alta|Media|Baja'],['priority','Prioridad','select','|Urgente|Alta|Media|Baja']];
-export function newBug(){return {enabled:false,title:'',description:'',expected:'',actual:'',severity:'',priority:'',evidence:[]};}
-export function newStandaloneBug(number=1){return {uid:crypto.randomUUID(),id:'BUG-'+String(number).padStart(3,'0'),steps:'',evidence:[],bug:{...newBug(),component:'',enabled:true}};}
-export function bugEntries(report){return [...report.cases.filter(c=>c.bug?.enabled).map(c=>({...c,standalone:false})),...(report.bugs||[]).filter(b=>b.bug?.enabled).map(b=>({...b,standalone:true}))];}
-export function bugEvidence(entry){const seen=new Set();return [...entry.evidence,...(entry.bug?.evidence||[])].filter(e=>{if(seen.has(e.uid))return false;seen.add(e.uid);return true;});}
-export function reportEvidenceGroups(report){return [...report.cases,...(report.bugs||[])].flatMap(entry=>[entry.evidence,...(entry.bug?.evidence?[entry.bug.evidence]:[])]).concat((report.retests||[]).map(r=>r.evidence));}
+export function newBug(template=defaultTemplate()){const bug={enabled:false,title:'',description:'',expected:'',actual:'',severity:'',priority:'',evidence:[]};applyTemplateDefaults({bug},template,'bug');return bug;}
+export function newStandaloneBug(number=1,template=defaultTemplate()){return {uid:crypto.randomUUID(),id:'BUG-'+String(number).padStart(3,'0'),steps:'',evidence:[],bug:{...newBug(template),component:'',enabled:true}};}
+export function bugEntries(report){return [...report.cases.flatMap(c=>caseBugEntries(c)),...(report.bugs||[]).filter(b=>b.bug?.enabled).map(b=>({...b,standalone:true}))];}
+export function bugEvidence(entry){const seen=new Set();return [...(entry.standalone?entry.evidence||[]:[]),...(entry.bug?.evidence||[])].filter(e=>{if(seen.has(e.uid))return false;seen.add(e.uid);return true;});}
+export function reportEvidenceGroups(report){return [...report.cases,...(report.bugs||[])].flatMap(entry=>[entry.evidence,...(entry.bug?.evidence?[entry.bug.evidence]:[]),...(entry.additionalBugs||[]).flatMap(b=>b.evidence?[b.evidence]:[])]).concat((report.retests||[]).map(r=>r.evidence));}
 export function fieldVisible(record,key){return !record.omittedFields?.[key]&&String(record[key]??'').trim()!=='';}
 export function reportSections(report,c){
   return templateFor(report).case.sections.map((section,i)=>{
@@ -26,11 +28,11 @@ export function reportSections(report,c){
   }).filter(s=>s.fields.length||s.evidence.length);
 }
 export function bugReportSections(report,c){return templateFor(report).bug.sections.map((s,i)=>({number:i+1,title:s.title,fields:s.fields.filter(f=>visibleField(c,f,'bug')).map(f=>({...f,value:displayField(c,f,'bug')})),evidence:s.evidence?bugEvidence(c):[]})).filter(s=>s.fields.length||s.evidence.length);}
-export function newCase(number=1) {
-  return { uid:crypto.randomUUID(),id:'CP-'+String(number).padStart(3,'0'),...Object.fromEntries(textFields.map(k=>[k,''])),type:'Positivo',result:'Pendiente',automation:'Por evaluar',context:'',evidence:[],selected:true,reviewed:false,omittedFields:{},bug:newBug() };
+export function newCase(number=1,template=defaultTemplate()) {
+  return applyTemplateDefaults({ uid:crypto.randomUUID(),id:'CP-'+String(number).padStart(3,'0'),...Object.fromEntries(textFields.map(k=>[k,''])),type:'Positivo',result:'Pendiente',automation:'Por evaluar',context:'',evidence:[],selected:true,reviewed:false,omittedFields:{},bug:newBug(template) },template);
 }
 export function newReport(template=defaultTemplate()) {
-  return { uid:crypto.randomUUID(),title:'Informe de pruebas',app:'',environment:'QA',version:'',author:'',ticket:'',created:new Date().toISOString(),updated:new Date().toISOString(),cases:[newCase()],omittedFields:{},favorite:false,bugs:[],retests:[],template:structuredClone(template) };
+  return { uid:crypto.randomUUID(),title:'Informe de pruebas',app:'',environment:'QA',version:'',author:'',ticket:'',created:new Date().toISOString(),updated:new Date().toISOString(),cases:[newCase(1,template)],omittedFields:{},favorite:false,bugs:[],retests:[],template:structuredClone(template) };
 }
 export function completion(c,report) {
   if(report){const fields=templateFields(report),mandatory=fields.filter(f=>f.required&&caseFieldActive(report,c,f)),tracked=mandatory.length?mandatory:fields.filter(f=>caseFieldActive(report,c,f)&&(['name','objective','preconditions','testData','steps','expected','actual','result'].includes(f.key)||f.key.startsWith('custom_'))&&!c.omittedFields?.[f.key]);return tracked.length?Math.round(tracked.filter(f=>visibleField(c,f)&&(f.key!=='result'||c.result!=='Pendiente')).length*100/tracked.length):100;}
@@ -55,8 +57,14 @@ export function validateBackup(data) {
     for(const b of r.bugs||[]){if(!b||typeof b.uid!=='string'||typeof b.id!=='string'||typeof b.steps!=='string'||!b.bug)throw new Error('El respaldo contiene un bug independiente inválido.');validateBug(b.bug);validateEvidence(b.evidence);}
     if(r.ticket!==undefined&&typeof r.ticket!=='string')throw new Error('El respaldo contiene un ticket inválido.');
     for(const key of ['app','environment','version','author','created']) if(typeof r[key]!=='string') throw new Error('El respaldo contiene datos de informe inválidos.');
+    const caseBugIds=new Set([...r.cases.map(c=>c?.uid),...(r.bugs||[]).map(b=>b.uid)]);
     for(const c of r.cases) {
-      if(c?.bug!==undefined)validateBug(c.bug);validateCustomValues(c);
+      if(c?.bug!==undefined)validateBug(c.bug);validateCustomValues(c);validateAlmFields(c);
+      if(c?.primaryBugRemoved!==undefined&&typeof c.primaryBugRemoved!=='boolean')throw new Error('El estado del bug original no es válido.');
+      if(c?.additionalBugs!==undefined){
+        if(!Array.isArray(c.additionalBugs)||c.additionalBugs.length>49)throw new Error('Máximo 50 bugs por caso de prueba.');
+        for(const bug of c.additionalBugs){if(!bug||typeof bug.uid!=='string'||!/^[a-f0-9-]{36}$/i.test(bug.uid)||caseBugIds.has(bug.uid))throw new Error('Identificador de bug de caso inválido.');caseBugIds.add(bug.uid);validateBug(bug);}
+      }
       if(!c||typeof c.uid!=='string'||typeof c.id!=='string'||typeof c.selected!=='boolean'||typeof c.reviewed!=='boolean'||!Array.isArray(c.evidence)||c.evidence.length>20) throw new Error('El respaldo contiene un caso inválido.');
       if(typeof c.context!=='string') throw new Error('El respaldo contiene una descripción inválida.');
       for(const k of textFields) if(typeof c[k]!=='string') throw new Error('El respaldo contiene campos inválidos.');

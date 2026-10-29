@@ -2,6 +2,7 @@ import {mkdir,writeFile,readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
 export const MAX_DOWNLOAD_BYTES=256*1024*1024;
+const excelType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const docxType='application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const json=(body,status=200)=>new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}});
 export function downloadsAPI(root){return async request=>{
@@ -12,12 +13,12 @@ export function downloadsAPI(root){return async request=>{
       if(request.headers.get('origin')!==url.origin)return json({error:'La descarga debe generarse desde la aplicación local.'},403);
       let filename;try{filename=decodeURIComponent(request.headers.get('x-download-filename')||'');}catch{return json({error:'Nombre de archivo inválido.'},400);}
       filename=filename.replace(/[<>:"/\\|?*\u0000-\u001f\u007f]/g,'-').trim().replace(/[. ]+$/,'');
-      if(filename.length>180){const ext=filename.match(/\.(docx|json|zip)$/i)?.[0]||'.json';filename=filename.slice(0,170)+ext;}
-      if(!filename||!(/\.(docx|json|zip)$/i.test(filename)))return json({error:'Formato de archivo no permitido.'},400);
+      if(filename.length>180){const ext=filename.match(/\.(docx|json|zip|xlsx)$/i)?.[0]||'.json';filename=filename.slice(0,170)+ext;}
+      if(!filename||!(/\.(docx|json|zip|xlsx)$/i.test(filename)))return json({error:'Formato de archivo no permitido.'},400);
       const archive=filename.toLowerCase().endsWith('.zip');const data=Buffer.from(await request.arrayBuffer());if(!data.length||data.length>(archive?MAX_DOWNLOAD_BYTES:26*1024*1024))return json({error:'El archivo está vacío o supera el tamaño permitido.'},413);
-      const word=filename.toLowerCase().endsWith('.docx');if((word||archive)&&(data[0]!==0x50||data[1]!==0x4b||data[2]!==3||data[3]!==4))return json({error:'El documento o ZIP generado no es válido.'},400);
-      if(!word&&!archive){try{JSON.parse(data.toString('utf8'));}catch{return json({error:'El respaldo generado no es válido.'},400);}}
-      const id=randomUUID(),directory=join(root,id);await mkdir(directory,{recursive:true});await writeFile(join(directory,'document'),data,{flag:'wx'});await writeFile(join(directory,'metadata.json'),JSON.stringify({filename,type:word?docxType:archive?'application/zip':'application/json',size:data.length}),{flag:'wx'});
+      const word=filename.toLowerCase().endsWith('.docx'),excel=filename.toLowerCase().endsWith('.xlsx');if((word||archive||excel)&&(data[0]!==0x50||data[1]!==0x4b||data[2]!==3||data[3]!==4))return json({error:'El documento o ZIP generado no es válido.'},400);
+      if(!word&&!archive&&!excel){try{JSON.parse(data.toString('utf8'));}catch{return json({error:'El respaldo generado no es válido.'},400);}}
+      const id=randomUUID(),directory=join(root,id);await mkdir(directory,{recursive:true});await writeFile(join(directory,'document'),data,{flag:'wx'});await writeFile(join(directory,'metadata.json'),JSON.stringify({filename,type:word?docxType:excel?excelType:archive?'application/zip':'application/json',size:data.length}),{flag:'wx'});
       return json({url:'/api/downloads/'+id+'/'+encodeURIComponent(filename),filename});
     }
     const match=url.pathname.match(/^\/api\/downloads\/([a-f0-9-]{36})\/([^/]+)$/i);

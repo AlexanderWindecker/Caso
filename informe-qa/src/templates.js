@@ -1,5 +1,6 @@
+import {almFields,almValue} from './alm-fields.js';
 export const fieldTypes={text:'Texto corto',textarea:'Texto largo',select:'Desplegable',checkbox:'Checkbox',date:'Fecha'};
-const caseBuiltins=['id','name','module','type','objective','preconditions','role','existingData','dependencies','testData','steps','expected','result','actual','automation','rules','validations','edgeCases'];
+const caseBuiltins=[...almFields.map(f=>f.key),'id','name','module','type','objective','preconditions','role','existingData','dependencies','testData','steps','expected','result','actual','automation','rules','validations','edgeCases'];
 const bugBuiltins=['title','description','expected','actual','severity','priority','steps'];
 const field=(key,label,type='text',options=[])=>({key,label,type,options,required:false});
 export function defaultTemplate(){return {version:'builtin-v1',name:'Plantilla funcional',case:{sections:[
@@ -14,8 +15,12 @@ export function defaultTemplate(){return {version:'builtin-v1',name:'Plantilla f
 ]},bug:{sections:[{id:'bug-details',title:'Detalle del bug',fields:[field('title','Título'),field('description','Descripción','textarea'),field('expected','Resultado esperado','textarea'),field('actual','Resultado obtenido','textarea'),field('severity','Severidad','select',['','Bloqueante','Crítica','Alta','Media','Baja']),field('priority','Prioridad','select',['','Urgente','Alta','Media','Baja'])]},{id:'bug-steps',title:'Pasos para reproducir',fields:[field('steps','Pasos para reproducir','textarea')]},{id:'bug-evidence',title:'Evidencias',evidence:true,fields:[]}]}};}
 export function templateFor(report){return report.template||defaultTemplate();}
 export function templateFields(report,kind='case'){return templateFor(report)[kind].sections.flatMap(s=>s.fields);}
-export function fieldValue(entry,f,kind='case'){const record=kind==='bug'?entry.bug:entry;if(kind==='bug'&&f.key==='steps')return String(record.steps??entry.steps??'');return String((f.key.startsWith('custom_')?record.customFields?.[f.key]:record[f.key])??'');}
+export function fieldValue(entry,f,kind='case'){const record=kind==='bug'?entry.bug:entry;if(kind==='bug'&&f.key==='steps')return String(record.steps??entry.steps??'');if(kind==='case'&&almFields.some(field=>field.key===f.key))return almValue(record,f.key);return String((f.key.startsWith('custom_')?record.customFields?.[f.key]:record[f.key])??'');}
 export function setFieldValue(entry,f,value,kind='case'){const record=kind==='bug'?entry.bug:entry;if(f.key.startsWith('custom_')){record.customFields||={};record.customFields[f.key]=String(value);}else record[f.key]=String(value);}
+export function applyTemplateDefaults(entry,template,kind='case'){
+  for(const f of template[kind].sections.flatMap(s=>s.fields))if(f.type==='select'&&typeof f.defaultValue==='string'&&f.defaultValue!==''&&f.options.includes(f.defaultValue))setFieldValue(entry,f,f.defaultValue,kind);
+  return entry;
+}
 export function visibleField(entry,f,kind='case'){const record=kind==='bug'?entry.bug:entry;return (f.required||!record.omittedFields?.[f.key])&&fieldValue(entry,f,kind).trim()!=='';}
 export function displayField(entry,f,kind='case'){const value=fieldValue(entry,f,kind);return f.type==='checkbox'?(value==='true'?'Sí':value==='false'?'No':value):value;}
 export function caseFieldActive(report,entry,f){return !(entry.automation==='No Aplica'&&['rules','validations','edgeCases'].includes(f.key)&&templateFields(report).some(field=>field.key==='automation'));}
@@ -34,6 +39,7 @@ export function validateTemplate(t){
         count++;
         if(!f||typeof f.key!=='string'||keys.has(f.key)||!((kind==='case'?caseBuiltins:bugBuiltins).includes(f.key)||/^custom_[a-f0-9-]{36}$/i.test(f.key))||typeof f.label!=='string'||!f.label.trim()||f.label.length>160||!Object.hasOwn(fieldTypes,f.type)||typeof f.required!=='boolean'||!Array.isArray(f.options)||f.options.length>100||f.options.some(o=>typeof o!=='string'||o.length>160))throw new Error('Revisá los nombres, tipos y opciones de los campos.');
         if(f.type==='select'&&!f.options.some(v=>v.trim()))throw new Error(`Agregá opciones al desplegable «${f.label}».`);
+        if(f.defaultValue!==undefined&&(typeof f.defaultValue!=='string'||f.defaultValue.length>160||f.type!=='select'||f.defaultValue!==''&&!f.options.includes(f.defaultValue)))throw new Error(`Revisá el valor predeterminado de «${f.label}».`);
         keys.add(f.key);
       }
     }

@@ -1,8 +1,9 @@
 import {bugTicket} from './bug-ticket.js';
+import {caseBugEntries} from './case-bugs.js';
 export const retestStatuses=['Pendiente','Corregido','Persiste','Corregido parcialmente','Bloqueado'];
 export const retestFields=[['bugTitle','Título del bug'],['ticket','Ticket relacionado'],['version','Versión probada'],['environment','Ambiente'],['date','Fecha de validación'],['author','Responsable'],['steps','Pasos ejecutados'],['expected','Resultado esperado'],['actual','Resultado obtenido'],['observations','Observaciones']];
 const uuid=v=>typeof v==='string'&&/^[a-f0-9-]{36}$/i.test(v);
-export function retestSources(report){return [...report.cases.filter(c=>c.bug?.enabled).map(c=>({...c,kind:'case'})),...(report.bugs||[]).filter(b=>b.bug?.enabled).map(b=>({...b,kind:'standalone'}))].map(c=>({sourceUid:c.uid,sourceKind:c.kind,sourceId:c.id,bugTitle:c.bug.title||c.name||c.id,ticket:bugTicket(report,c),steps:c.bug.steps??c.steps??'',expected:c.bug.expected||'',originalActual:c.bug.actual||'',originalEvidenceCount:(c.evidence||[]).length+(c.bug.evidence||[]).length}));}
+export function retestSources(report){return [...report.cases.flatMap(c=>caseBugEntries(c).map(entry=>({...entry,kind:'case'}))),...(report.bugs||[]).filter(b=>b.bug?.enabled).map(b=>({...b,kind:'standalone'}))].map(c=>({sourceUid:c.uid,sourceKind:c.kind,sourceId:c.caseId||c.id,bugTitle:c.bug.title||c.name||c.id,ticket:bugTicket(report,c),steps:c.bug.steps??c.steps??'',expected:c.bug.expected||'',originalActual:c.bug.actual||'',originalEvidenceCount:(c.kind==='standalone'?(c.evidence||[]).length:0)+(c.bug.evidence||[]).length}));}
 export function todayForRetest(){const parts=new Intl.DateTimeFormat('en',{timeZone:'America/Argentina/Buenos_Aires',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());const part=t=>parts.find(p=>p.type===t).value;return `${part('year')}-${part('month')}-${part('day')}`;}
 export function newRetest(report,source=null,previous=null){
   const baseline=previous||source||{},groupUid=previous?.groupUid||source?.sourceUid||crypto.randomUUID(),entries=report.retests||[];
@@ -13,6 +14,7 @@ export function filterRetests(report,{query='',status='',version=''}={}){const q
 export function remapRetestSources(original,copy){
   if(!original.retests)return copy;
   const ids=new Map(original.cases.map((c,i)=>[c.uid,copy.cases[i].uid]));
+  for(const [i,c] of original.cases.entries())for(const [j,bug] of (c.additionalBugs||[]).entries())ids.set(bug.uid,copy.cases[i].additionalBugs?.[j]?.uid||bug.uid);
   copy.retests=original.retests.map(r=>({...structuredClone(r),sourceUid:ids.get(r.sourceUid)||r.sourceUid,groupUid:ids.get(r.groupUid)||r.groupUid}));return copy;
 }
 export function retestExportEntries(report,{uid}={}){
