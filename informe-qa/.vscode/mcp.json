@@ -1,0 +1,28 @@
+{
+  "inputs": [
+    {
+      "id": "jiraBaseUrl",
+      "type": "promptString",
+      "description": "URL base de Jira accesible desde este equipo",
+      "default": "https://sgi.bancocredicoop.coop"
+    },
+    {
+      "id": "jiraPat",
+      "type": "promptString",
+      "description": "Token personal de Jira",
+      "password": true
+    }
+  ],
+  "servers": {
+    "Jira Data Center (solo Jira)": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${workspaceFolder}/scripts/jira-only-mcp.mjs"],
+      "env": {
+        "JIRA_BASE_URL": "${input:jiraBaseUrl}",
+        "JIRA_AUTH_TYPE": "pat",
+        "JIRA_PAT": "${input:jiraPat}"
+      }
+    }
+  }
+}

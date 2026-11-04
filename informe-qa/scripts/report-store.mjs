@@ -6,6 +6,8 @@ const hash=value=>createHash('sha256').update(value).digest('hex');
 const canonical=value=>Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])])):value;
 const validId=id=>typeof id==='string'&&/^[a-f0-9-]{36}$/i.test(id);
 function plain(report){const copy=structuredClone(report);delete copy._diskRevision;return copy;}
+const syncDigest=packed=>{const content={...packed};delete content.updated;return hash(JSON.stringify(canonical(content)));};
+function recoveryId(sourceId,digest){const hex=hash(sourceId+':'+digest);return `${hex.slice(0,8)}-${hex.slice(8,12)}-5${hex.slice(13,16)}-a${hex.slice(17,20)}-${hex.slice(20,32)}`;}
 async function entries(path){try{return await readdir(path);}catch(e){if(e.code==='ENOENT')return [];throw e;}}
 async function atomic(path,value){const temporary=path+'.pending-'+randomUUID(),file=await open(temporary,'wx');try{await file.writeFile(value);await file.sync();}finally{await file.close();}await rename(temporary,path);}
 export class ReportStore{
@@ -27,7 +29,30 @@ export class ReportStore{
     }
     const record={revision:randomUUID(),sequence:(current?.sequence||0)+1,savedAt:new Date().toISOString(),report:packed,digest};await atomic(join(dir,`snapshot-${String(record.sequence).padStart(12,'0')}-${record.revision}.json`),JSON.stringify(record));return this.unpack(record);
   });}
-  async import(reports){validateBackup({format:'caso-qa-v1',reports});for(const input of reports){let report=plain(input);const record=await this.latest(report.uid);if(record?.deleted){if(report.updated<=record.savedAt)continue;report={...report,uid:randomUUID(),title:report.title+' (copia del navegador)'};}else if(record){const current=await this.unpack(record);if(JSON.stringify(canonical(plain(current)))===JSON.stringify(canonical(report)))continue;report={...report,uid:randomUUID(),title:report.title+' (copia del navegador)'};}await this.write(report,null);}return this.all();}
+  async historicalDigest(id,digest){const {dir,names}=await this.records(id);for(const name of names){const record=JSON.parse(await readFile(join(dir,name),'utf8'));if(syncDigest(record.report)===digest)return true;}return false;}
+  async import(reports){
+    validateBackup({format:'caso-qa-v1',reports});
+    for(const input of reports){
+      let report=plain(input);const record=await this.latest(report.uid);
+      if(!record){await this.write(report,null);continue;}
+      const packed=await this.pack(report),digest=syncDigest(packed);
+      if(syncDigest(record.report)===digest)continue;
+      // Unsynced edits based on the current revision can safely retain their report ID.
+      if(!record.deleted&&input._diskRevision===record.revision){
+        try{await this.write(report,record.revision);continue;}catch(error){if(error.status!==409)throw error;}
+      }
+      // A previous saved snapshot is a stale cache, not a new report to recover.
+      if(await this.historicalDigest(report.uid,digest))continue;
+      if(record.deleted&&report.updated<=record.savedAt)continue;
+      // Genuine divergent edits are recovered once. Repeated imports and parallel tabs
+      // resolve to the same ID; editing/deleting that recovery never recreates it.
+      const id=recoveryId(report.uid,digest);
+      if(await this.latest(id))continue;
+      report={...report,uid:id,title:report.title+' (copia del navegador)'};
+      try{await this.write(report,null);}catch(error){if(error.status!==409)throw error;}
+    }
+    return this.all();
+  }
   async history(id){const dir=this.directory(id),names=(await entries(dir)).filter(n=>/^(snapshot-|conflict-).*\.json$/.test(n)),items=[];for(const name of names){const r=JSON.parse(await readFile(join(dir,name),'utf8'));items.push({revision:r.revision,savedAt:r.savedAt,title:r.report.title,cases:r.report.cases.length,kind:r.deleted?'deleted':r.kind||'saved'});}return items.sort((a,b)=>b.savedAt.localeCompare(a.savedAt));}
   async version(id,revision){if(!validId(revision))throw new Error('Versión inválida.');const dir=this.directory(id),name=(await entries(dir)).find(n=>n.endsWith('-'+revision+'.json'));if(!name)throw new Error('No se encontró esa versión.');return this.unpack(JSON.parse(await readFile(join(dir,name),'utf8')));}
   async remove(id,baseRevision){return this.locked(async()=>{const current=await this.latest(id);if(!current||current.revision!==baseRevision){const error=new Error('El informe cambió en otra ventana. Volvé a abrirlo antes de eliminar.');error.status=409;throw error;}const record={...current,revision:randomUUID(),sequence:current.sequence+1,savedAt:new Date().toISOString(),deleted:true};await atomic(join(this.directory(id),`snapshot-${String(record.sequence).padStart(12,'0')}-${record.revision}.json`),JSON.stringify(record));return {deleted:true};});}

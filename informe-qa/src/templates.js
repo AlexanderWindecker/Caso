@@ -1,9 +1,10 @@
 import {almFields,almValue} from './alm-fields.js';
+import {defaultHeaderTemplate,headerBuiltinKeys,headerFields,headerValue} from './report-header.js';
 export const fieldTypes={text:'Texto corto',textarea:'Texto largo',select:'Desplegable',checkbox:'Checkbox',date:'Fecha'};
 const caseBuiltins=[...almFields.map(f=>f.key),'id','name','module','type','objective','preconditions','role','existingData','dependencies','testData','steps','expected','result','actual','automation','rules','validations','edgeCases'];
 const bugBuiltins=['title','description','expected','actual','severity','priority','steps'];
 const field=(key,label,type='text',options=[])=>({key,label,type,options,required:false});
-export function defaultTemplate(){return {version:'builtin-v1',name:'Plantilla funcional',case:{sections:[
+export function defaultTemplate(){return {version:'builtin-v1',name:'Plantilla funcional',header:defaultHeaderTemplate(),case:{sections:[
   {id:'identification',title:'Identificación del caso',fields:[field('id','ID del Caso'),field('name','Nombre del caso'),field('module','Módulo / Funcionalidad'),field('type','Tipo de caso','select',['Positivo','Negativo','Alternativo'])]},
   {id:'objective',title:'Objetivo del caso',fields:[field('objective','Objetivo funcional','textarea')]},
   {id:'preconditions',title:'Precondiciones',fields:[field('preconditions','Estado previo del sistema','textarea'),field('role','Usuario / Rol requerido'),field('existingData','Datos existentes necesarios','textarea'),field('dependencies','Dependencias con otros sistemas','textarea')]},
@@ -24,11 +25,11 @@ export function applyTemplateDefaults(entry,template,kind='case'){
 export function visibleField(entry,f,kind='case'){const record=kind==='bug'?entry.bug:entry;return (f.required||!record.omittedFields?.[f.key])&&fieldValue(entry,f,kind).trim()!=='';}
 export function displayField(entry,f,kind='case'){const value=fieldValue(entry,f,kind);return f.type==='checkbox'?(value==='true'?'Sí':value==='false'?'No':value):value;}
 export function caseFieldActive(report,entry,f){return !(entry.automation==='No Aplica'&&['rules','validations','edgeCases'].includes(f.key)&&templateFields(report).some(field=>field.key==='automation'));}
-export function requiredMissing(report,entries,kind='case'){const fields=templateFields(report,kind).filter(f=>f.required);return entries.flatMap(c=>fields.filter(f=>(kind!=='case'||caseFieldActive(report,c,f))&&!visibleField(c,f,kind)).map(f=>`${c.id}: ${f.label}`));}
+export function requiredMissing(report,entries,kind='case'){const fields=templateFields(report,kind).filter(f=>f.required),header=headerFields(report).filter(f=>f.enabled!==false&&f.required&&(!headerValue(report,f).trim()||f.type==='select'&&!f.options.includes(headerValue(report,f)))).map(f=>'Encabezado: '+f.label);return [...header,...entries.flatMap(c=>fields.filter(f=>(kind!=='case'||caseFieldActive(report,c,f))&&!visibleField(c,f,kind)).map(f=>`${c.id}: ${f.label}`))];}
 export function validateCustomValues(record){if(!record||record.customFields===undefined)return;if(!record.customFields||typeof record.customFields!=='object'||Array.isArray(record.customFields)||Object.keys(record.customFields).length>200||Object.entries(record.customFields).some(([key,value])=>!/^custom_[a-f0-9-]{36}$/i.test(key)||typeof value!=='string'||value.length>50000))throw new Error('Los campos personalizados no son válidos.');}
 export function validateTemplate(t){
   if(!t||typeof t!=='object'||typeof t.version!=='string'||t.version.length>80||typeof t.name!=='string'||!t.name.trim()||t.name.length>160)throw new Error('La plantilla no es válida.');
-  for(const kind of ['case','bug']){
+  for(const kind of ['case','bug',...(t.header!==undefined?['header']:[])]){
     const sections=t[kind]?.sections;
     if(!Array.isArray(sections)||!sections.length||sections.length>30)throw new Error('La plantilla necesita entre 1 y 30 secciones.');
     const ids=new Set(),keys=new Set();let count=0,evidence=0;
@@ -37,9 +38,11 @@ export function validateTemplate(t){
       ids.add(s.id);if(s.evidence)evidence++;
       for(const f of s.fields){
         count++;
-        if(!f||typeof f.key!=='string'||keys.has(f.key)||!((kind==='case'?caseBuiltins:bugBuiltins).includes(f.key)||/^custom_[a-f0-9-]{36}$/i.test(f.key))||typeof f.label!=='string'||!f.label.trim()||f.label.length>160||!Object.hasOwn(fieldTypes,f.type)||typeof f.required!=='boolean'||!Array.isArray(f.options)||f.options.length>100||f.options.some(o=>typeof o!=='string'||o.length>160))throw new Error('Revisá los nombres, tipos y opciones de los campos.');
+        if(!f||typeof f.key!=='string'||keys.has(f.key)||!((kind==='header'?headerBuiltinKeys:kind==='case'?caseBuiltins:bugBuiltins).includes(f.key)||/^custom_[a-f0-9-]{36}$/i.test(f.key))||typeof f.label!=='string'||!f.label.trim()||f.label.length>160||!Object.hasOwn(fieldTypes,f.type)||typeof f.required!=='boolean'||!Array.isArray(f.options)||f.options.length>100||f.options.some(o=>typeof o!=='string'||o.length>160)||(f.enabled!==undefined&&typeof f.enabled!=='boolean'))throw new Error('Revisá los nombres, tipos y opciones de los campos.');
+        if(kind==='header'&&f.key==='app'&&f.type!=='select')throw new Error('Proyecto debe ser un desplegable.');
+        if(kind==='header'&&f.type==='select'&&new Set(f.options).size!==f.options.length)throw new Error(`Quitá las opciones repetidas de «${f.label}».`);
         if(f.type==='select'&&!f.options.some(v=>v.trim()))throw new Error(`Agregá opciones al desplegable «${f.label}».`);
-        if(f.defaultValue!==undefined&&(typeof f.defaultValue!=='string'||f.defaultValue.length>160||f.type!=='select'||f.defaultValue!==''&&!f.options.includes(f.defaultValue)))throw new Error(`Revisá el valor predeterminado de «${f.label}».`);
+        if(f.defaultValue!==undefined&&(typeof f.defaultValue!=='string'||f.defaultValue.length>160||(kind!=='header'&&f.type!=='select')||f.type==='select'&&f.defaultValue!==''&&!f.options.includes(f.defaultValue)))throw new Error(`Revisá el valor predeterminado de «${f.label}».`);
         keys.add(f.key);
       }
     }

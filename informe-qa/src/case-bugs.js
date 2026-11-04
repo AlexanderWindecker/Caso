@@ -13,7 +13,7 @@ export function removeCaseBug(c,uid){
   c.additionalBugs.splice(index,1);return true;
 }
 export function resetClonedCaseBugs(c){
-  if(c.bug)c.bug.evidence=[];
-  for(const bug of c.additionalBugs||[]){bug.uid=crypto.randomUUID();bug.evidence=[];}
+  if(c.bug){c.bug.evidence=[];delete c.bug.jiraPublication;delete c.bug.jiraDraft;}
+  for(const bug of c.additionalBugs||[]){bug.uid=crypto.randomUUID();bug.evidence=[];delete bug.jiraPublication;delete bug.jiraDraft;}
   return c;
 }

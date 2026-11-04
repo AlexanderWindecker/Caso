@@ -56,6 +56,61 @@ npm start
 
 `src/` contiene interfaz, estilos, datos, generación de Word y endpoint IA. `scripts/build.mjs` compila el cliente e incorpora sus archivos en un Worker ESM portable. `worker/index.js` y `dist/` son salidas generadas; editar `src/` y compilar. `scripts/serve.mjs` adapta el Worker a Node y escucha solo en loopback. La validación de IA usa un proveedor simulado; no acredita análisis real sin credencial.
 
+## Proyectos del informe
+
+El campo Proyecto ofrece inicialmente solo Cobranza de facturas (CF), Gestor unificado de valores (GUV) y Datos históricos nuevo (DH), además de la opción vacía de selección. No se agregan automáticamente los textos antiguos del informe al desplegable. Esos valores se conservan internamente y se muestran como una nota hasta que se elija una opción configurada.
+
+La selección se conserva en el campo existente `app`, se aplica a todos los casos del informe y se incluye en las exportaciones con la etiqueta configurada. No se asigna automáticamente un proyecto a partir del nombre de un módulo.
+
+## Encabezado editable desde Mis plantillas
+
+Para configurar el encabezado del informe abierto: **Mis plantillas → Editar para este informe → Encabezado**. Se pueden cambiar etiquetas, tipos de campo, opciones de desplegables, valores predeterminados de los selectores, obligatoriedad, visibilidad y orden; también agregar campos personalizados o quitar campos conservando sus datos.
+
+Para mantener una configuración reutilizable: editar una plantilla de la biblioteca, ir a **Encabezado** y guardar. Luego usar **Aplicar a este informe** para actualizar el informe abierto, o elegir esa plantilla al crear uno nuevo. Cambiar una plantilla de biblioteca no modifica automáticamente los informes existentes. Aplicar una plantilla conserva los valores ya completados.
+
+Las opciones de Proyecto se editan en su cuadro **Opciones: una por línea**. Por ejemplo, `Cobranza de facturas (CF)`. Proyecto se mantiene como un desplegable. Los proyectos adicionales pueden usarse para documentar informes; habilitar su publicación en Jira requiere agregar el perfil correspondiente al orquestador y a las herramientas MCP, que actualmente permiten CF, GUV y DH.
+
+La estructura reside en `template.header.sections`. Los campos originales usan `app`, `environment`, `version`, `author` y `ticket`; los valores personalizados se conservan en `report.headerValues`. La configuración y los valores se incluyen en respaldos e historial. Las etiquetas, el orden y la visibilidad se respetan en la vista previa y en Word; los campos obligatorios se validan al exportar. Los bugs mantienen su ticket relacionado propio.
+
+Archivos: `src/report-header.js` define y dibuja el encabezado; `src/template-editor.js` lo edita; `src/templates.js` valida su estructura; `src/template-library.js` permite aplicar las plantillas guardadas. `src/projects.js` contiene únicamente el catálogo inicial de los tres proyectos.
+
+## Publicación de bugs en Jira
+
+Cada bug activo, tanto independiente como asociado a un caso, dispone de **Crear ticket en Jira**. El circuito es: guardar el bug, preparar la vista previa, completar los campos Jira, seleccionar evidencias y confirmar **Crear ticket en Jira**. Si se modifica un selector o una evidencia, primero hay que actualizar la vista previa. Preparar y revisar no crea tickets.
+
+El servidor local inicia un cliente MCP propio; no requiere que Copilot ni el chat de Codex estén abiertos. Reutiliza la extensión instalada **Atlassian Private MCP Server 0.2.0**, adaptada para Jira, y las credenciales configuradas en los ajustes de usuario de VS Code. También admite `JIRA_BASE_URL` y `JIRA_PAT` como variables de entorno del servidor, sin enviarlas al navegador. Después de actualizar el código, reiniciar el servicio local y recargar el navegador.
+
+Los agentes de esta primera versión son módulos ejecutables de preparación y validación basados en reglas. No generan información con un modelo de IA ni necesitan una credencial de OpenAI. El orquestador selecciona un agente según el proyecto explícito del bug o el proyecto del informe; los tres perfiles comparten las reglas generales. Los nombres de componentes y versiones no se deducen: se cargan desde Jira y se envían sus identificadores.
+
+| Archivo | Responsabilidad / dónde modificar |
+| --- | --- |
+| `scripts/jira/agents/orchestrator.mjs` | Derivación del bug a CF, GUV o DH y consulta de sus metadatos. |
+| `scripts/jira/agents/cf.mjs`, `guv.mjs`, `dh.mjs` | Perfiles separados de cada proyecto. |
+| `scripts/jira/agents/project-agent.mjs` | Validaciones comunes, correspondencia de severidad, campos Jira y composición de descripción. |
+| `scripts/jira/mcp-tools.mjs` | Herramientas MCP para metadatos completos, creación de defectos, reconciliación y adjuntos. |
+| `scripts/jira/mcp-client.mjs` | Cliente MCP local del servidor de la aplicación. |
+| `scripts/jira/publications.mjs` | Preparaciones, publicación, registro persistente y reintentos. |
+| `src/jira-panel.js` | Formulario de revisión, selección de evidencias y presentación del resultado. |
+| `src/jira.js` | Datos Jira permitidos en los bugs y selección de evidencias. |
+
+El tipo de incidencia es **Defecto**. Se cargan desde Jira tipo de defecto, componente, criticidad y **versiones afectadas**, con el usuario conectado como informador. Severidad local `Crítica` corresponde a `Crítico` de Jira. Se propone Testing para el ambiente. En proyectos que no exponen Ambiente en el formulario de creación (GUV en la verificación inicial), se documenta en la descripción. La descripción también reúne los pasos, esperado, obtenido, ticket relacionado y epígrafes de evidencias. Se exige al menos una evidencia, aunque el servidor Jira no la marque obligatoria en metadatos.
+
+El campo local **Ticket relacionado** conserva su valor. El defecto creado se guarda aparte como `bug.jiraPublication`; las selecciones de Jira se guardan como `bug.jiraDraft`. Ambos se conservan en respaldos e historial. Duplicar un caso elimina el vínculo de Jira de la copia. El registro de publicación reside en `data/jira-publications/` y debe conservarse al mover la aplicación.
+
+Si Jira crea el ticket pero falla un adjunto, **Reintentar adjuntos** utiliza ese mismo ticket. Las evidencias reciben nombres con una referencia y una huella de contenido para reconocer cargas previas. Si se pierde la respuesta al crear, se conserva el estado **Resultado por confirmar** y se busca una referencia de publicación incluida en la descripción. No se vuelve a crear mientras el resultado siga siendo incierto. Una restauración que ya contiene un vínculo de Jira también conserva ese ticket.
+
+Diagnóstico de conexión (solo lecturas, no publica tickets):
+
+```powershell
+node scripts/jira/check-connection.mjs
+```
+
+Las pruebas automatizadas de creación y adjuntos usan Jira simulado. Para revisar visualmente ese entorno aislado, compilar y ejecutar `node tests/fixtures/jira-server.mjs`; escucha en `http://127.0.0.1:4312` y usa almacenamiento temporal. La publicación individual está implementada; los lotes y la redacción mediante modelos de IA quedan para una etapa posterior.
+
 ## Almacenamiento y actualizaciones
+
+La sincronización de la caché reconoce versiones ya guardadas en Historial y no las convierte en informes nuevos. Un borrador con la revisión vigente se guarda sobre su informe; un borrador divergente se recupera una sola vez, incluso si se reenvía desde varias pestañas. Las diferencias de fecha de actualización por sí solas no generan copias.
+
+`node scripts/reconcile-browser-copies.mjs` muestra las copias del navegador cuyo contenido coincide con una versión histórica de un original activo. Con `--apply` se archivan esas copias mediante Historial, conservando sus versiones y evidencias; se registra la operación en `recovery/`. Los borradores con contenido diferente se mantienen.
 
 La aplicación funciona localmente y conserva sus datos en `data/`. Esa carpeta contiene informes, versiones y evidencias: conservarla al mover o actualizar la aplicación. El servicio escucha solo en este equipo. `data/`, `recovery/`, exportaciones y credenciales quedan excluidos del repositorio.

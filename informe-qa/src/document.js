@@ -1,4 +1,6 @@
-import {Document,Packer,Paragraph,TextRun,HeadingLevel,ImageRun,Header,Footer,AlignmentType,PageNumber} from 'docx';
+import {headerEntries} from './report-header.js';
+import {Document,Packer,Paragraph,TextRun,HeadingLevel,ImageRun,Header,Footer,AlignmentType,PageNumber,Table,TableRow,TableCell,WidthType,TableLayoutType,VerticalAlign,BorderStyle} from 'docx';
+import {wordLogo,wordFonts} from './word-branding.js';
 import {fieldVisible,reportSections,bugReportSections,bugEntries} from './model.js';
 import {bugTicket} from './bug-ticket.js';
 import {requiredMissing,templateFields} from './templates.js';
@@ -12,7 +14,7 @@ export async function createWord(report,{dimensions=imageSize}={}) {
   const cases=report.cases.filter(c=>c.selected);
   if(!cases.length) throw new Error('Seleccioná al menos un caso para exportar.');
   const missing=requiredMissing(report,cases);if(missing.length)throw new Error('Completá los campos obligatorios: '+missing.join(', '));
-  const content=[heading(report.title,HeadingLevel.TITLE),new Paragraph({text:'INFORME DE PRUEBAS FUNCIONALES',spacing:{after:300}}),...[['app','Aplicación / Sistema'],['environment','Ambiente'],['version','Versión / Release'],['author','Responsable'],['ticket','Ticket']].filter(([key])=>fieldVisible(report,key)).map(([key,label])=>line(label,report[key])),line('Fecha',new Date(report.updated).toLocaleDateString('es-AR')),new Paragraph({text:`${cases.length} caso(s) de prueba`,spacing:{after:300}})];
+  const content=[heading(report.title,HeadingLevel.TITLE),new Paragraph({text:'INFORME DE PRUEBAS FUNCIONALES',spacing:{after:300}}),...headerEntries(report).map(field=>line(field.label,field.value)),line('Fecha',new Date(report.updated).toLocaleDateString('es-AR')),new Paragraph({text:`${cases.length} caso(s) de prueba`,spacing:{after:300}})];
   for(const [i,c] of cases.entries()) {
     const n=i+1;
     content.push(new Paragraph({text:`${n}  ${templateFields(report).some(f=>f.key==='name')&&fieldVisible(c,'name')?c.name:'CASO '+n}`,heading:HeadingLevel.HEADING_1,pageBreakBefore:true}));
@@ -37,7 +39,7 @@ export async function createBugWord(report,{caseUid,dimensions=imageSize}={}){
   const cases=bugEntries(report).filter(c=>!caseUid||c.uid===caseUid);
   if(!cases.length)throw new Error('Marcá un caso como Bug o creá un bug independiente para exportar.');
   const missing=requiredMissing(report,cases,'bug');if(missing.length)throw new Error('Completá los campos obligatorios: '+missing.join(', '));
-  const title='Reporte de bugs — '+report.title,content=[heading(title,HeadingLevel.TITLE),new Paragraph({text:'REPORTE DE BUGS',spacing:{after:300}}),...[['app','Aplicación / Sistema'],['environment','Ambiente'],['version','Versión / Release'],['author','Responsable']].filter(([key])=>fieldVisible(report,key)).map(([key,label])=>line(label,report[key])),line('Fecha',new Date(report.updated).toLocaleDateString('es-AR')),new Paragraph({text:`${cases.length} bug(s) reportado(s)`,spacing:{after:300}})];
+  const title='Reporte de bugs — '+report.title,content=[heading(title,HeadingLevel.TITLE),new Paragraph({text:'REPORTE DE BUGS',spacing:{after:300}}),...headerEntries(report).filter(field=>field.key!=='ticket').map(field=>line(field.label,field.value)),line('Fecha',new Date(report.updated).toLocaleDateString('es-AR')),new Paragraph({text:`${cases.length} bug(s) reportado(s)`,spacing:{after:300}})];
   const tickets=[...new Set(cases.map(c=>bugTicket(report,c)).filter(t=>t.trim()))];if(tickets.length)content.push(line('Ticket relacionado',tickets.join(' · ')));
   for(const [i,c] of cases.entries()){
     const bug=c.bug;content.push(new Paragraph({text:`${i+1}  ${templateFields(report,'bug').some(f=>f.key==='title')&&bug.title.trim()||'BUG — '+c.id}`,heading:HeadingLevel.HEADING_1,pageBreakBefore:true}),line(c.standalone?'ID del Bug':'Caso de origen',c.id));
@@ -52,7 +54,13 @@ export async function createBugWord(report,{caseUid,dimensions=imageSize}={}){
   return packDocument(report,content,title,'Reporte independiente de bugs');
 }
 function packDocument(report,content,title,description,{headerText,creator}={}){
-  const doc=new Document({creator:creator??(fieldVisible(report,'author')?report.author:'Caso'),title,description,styles:{default:{document:{run:{font:'Calibri',size:22},paragraph:{spacing:{after:120}}}},paragraphStyles:[{id:'Heading1',name:'Heading 1',basedOn:'Normal',next:'Normal',quickFormat:true,run:{size:32,bold:true,color:'162F35'}},{id:'Heading2',name:'Heading 2',basedOn:'Normal',next:'Normal',quickFormat:true,run:{size:25,bold:true,color:'246D64'}}]},sections:[{properties:{page:{margin:{top:1000,bottom:1000,left:1100,right:1100}}},headers:{default:new Header({children:[new Paragraph({text:headerText??(['app','version'].filter(key=>fieldVisible(report,key)).map(key=>report[key]).join('  ·  ')||'Informe QA'),style:'Caption'})]})},footers:{default:new Footer({children:[new Paragraph({alignment:AlignmentType.RIGHT,children:[new TextRun('Página '),new TextRun({children:[PageNumber.CURRENT]})]})]})},children:content}]});
+  const noBorder={style:BorderStyle.NONE,size:0,color:'FFFFFF'};
+  const header=new Header({children:[new Table({width:{size:100,type:WidthType.PERCENTAGE},layout:TableLayoutType.FIXED,columnWidths:[1000,8706],borders:{top:noBorder,bottom:noBorder,left:noBorder,right:noBorder,insideHorizontal:noBorder,insideVertical:noBorder},rows:[new TableRow({cantSplit:true,children:[
+    new TableCell({width:{size:1000,type:WidthType.DXA},verticalAlign:VerticalAlign.CENTER,margins:{top:0,bottom:0,left:0,right:100},children:[new Paragraph({spacing:{before:0,after:0},children:[new ImageRun({data:bytes(wordLogo),type:'jpg',transformation:{width:58,height:60},altText:{title:'Logo corporativo',description:'Logo de la plantilla corporativa',name:'Logo corporativo'}})]})]}),
+    new TableCell({width:{size:8706,type:WidthType.DXA},shading:{fill:'D9D9D9'},verticalAlign:VerticalAlign.CENTER,margins:{top:80,bottom:80,left:100,right:100},children:[new Paragraph({spacing:{before:0,after:0},children:[new TextRun({text:headerText??report.title,font:wordFonts.body,size:32,bold:true,color:'000000'})]})]})
+  ]})]}),new Paragraph({spacing:{before:0,after:0},children:[new TextRun({text:'',size:2})]})]});
+  const titleStyle={font:wordFonts.heading,size:32,bold:true,color:'000000'};
+  const doc=new Document({creator:creator??(fieldVisible(report,'author')?report.author:'Caso'),title,description,styles:{default:{document:{run:{font:wordFonts.body,size:20,color:'000000'},paragraph:{spacing:{after:120}}},title:{run:titleStyle},heading1:{run:{font:wordFonts.heading,size:28,bold:true,italics:true,color:'156082'}},heading2:{run:{font:wordFonts.heading,size:24,bold:true,color:'000000'}}},paragraphStyles:[{id:'Title',name:'Title',basedOn:'Normal',next:'Normal',run:titleStyle},{id:'Heading1',name:'Heading 1',basedOn:'Normal',next:'Normal',quickFormat:true,run:{font:wordFonts.heading,size:28,bold:true,italics:true,color:'156082'}},{id:'Heading2',name:'Heading 2',basedOn:'Normal',next:'Normal',quickFormat:true,run:{font:wordFonts.heading,size:24,bold:true,color:'000000'}}]},sections:[{properties:{page:{margin:{top:1700,bottom:1000,left:1100,right:1100,header:450}}},headers:{default:header},footers:{default:new Footer({children:[new Paragraph({alignment:AlignmentType.RIGHT,children:[new TextRun('Página '),new TextRun({children:[PageNumber.CURRENT]})]})]})},children:content}]});
   return Packer.toBlob(doc);
 }
 export {packDocument,imageSize,bytes,line,paragraphs,heading};
