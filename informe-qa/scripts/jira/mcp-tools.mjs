@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import {readChatTool,chatToolNames} from './chat-tools.mjs';
 
 const allowedProject=key=>['CF','GUV','DH'].includes(key);
 const keyPattern=/^(CF|GUV|DH)-\d+$/;
@@ -71,6 +72,7 @@ export function registerQATools(server,z,client,baseUrl){
     catch(error){return {isError:true,content:[{type:'text',text:JSON.stringify({ok:false,error:error.message,status:error.status||0,uncertain:!!error.uncertain})}]};}
   });
   register('qaJiraMetadata','Read all create fields, current reporter and attachment limits for a QA project.',{projectKey:z.enum(['CF','GUV','DH'])},a=>gateway.metadata(a.projectKey));
+  register('qaJiraChatRead','Read-only Jira queries for the in-app chat. GET requests only.',{name:z.enum(chatToolNames),args:z.record(z.unknown())},a=>readChatTool(gateway,a.name,a.args));
   register('qaJiraFindPublication','Find a defect by its exact QA publication reference. Read only.',{projectKey:z.enum(['CF','GUV','DH']),marker:z.string()},a=>gateway.find(a.projectKey,a.marker));
   register('qaJiraCreateDefect','Create one reviewed QA defect. Requires explicit publication from the QA application.',{fields:z.record(z.unknown())},a=>gateway.create(a.fields));
   register('qaJiraAttachEvidence','Upload a PNG/JPEG QA evidence, recognizing previous uploads on retry.',{issueKey:z.string(),name:z.string(),data:z.string()},a=>gateway.attach(a));

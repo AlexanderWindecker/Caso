@@ -107,6 +107,37 @@ node scripts/jira/check-connection.mjs
 
 Las pruebas automatizadas de creación y adjuntos usan Jira simulado. Para revisar visualmente ese entorno aislado, compilar y ejecutar `node tests/fixtures/jira-server.mjs`; escucha en `http://127.0.0.1:4312` y usa almacenamiento temporal. La publicación individual está implementada; los lotes y la redacción mediante modelos de IA quedan para una etapa posterior.
 
+## Chat Jira con la sesión local de Codex
+
+En la barra lateral, **Chat Jira** abre el asistente de consulta. Usa la sesión ChatGPT ya iniciada en Codex en este equipo, con los límites y permisos de esa cuenta. No requiere una API key adicional para esta integración local. Las consultas y los resultados necesarios de Jira se envían a Codex para elaborar la respuesta. Esta integración local no es un servicio compartido con una cuenta para todo el equipo.
+
+Después de actualizar, cerrar el servicio local anterior, ejecutar `Iniciar.cmd` y recargar el navegador. Abrir **Chat Jira → Comprobar conexión**. Si falta la sesión, iniciar sesión en la extensión Codex de VS Code y comprobar nuevamente.
+
+Ejemplos: «Mostrame mis asignaciones», «Mostrame mis defectos en Resolved o Resuelta», «¿Qué tickets me asignaron hoy?» o «¿Qué cambió en DH-442?». Se muestran respuestas, enlaces a los tickets consultados y el JQL utilizado con el total y los resultados de cada página. Los estados y el historial determinan qué puede afirmarse: un estado Resolved por sí solo no prueba una devolución de Desarrollo. Los historiales incompletos se indican al asistente.
+
+Para consultas generales sobre mis asignaciones, `jira_assigned` consulta `assignee = currentUser()` sin excluir estados, categorías, tipos o proyectos. Los filtros se aplican cuando el usuario los solicita expresamente. Las respuestas muestran claves de ticket en lugar de URLs; la lista conserva los enlaces clickeables. `src/jira-chat-text.js` elimina las URLs y las marcas de formato del texto visible.
+
+La conversación permanece en memoria de la pestaña y del servicio; no se agrega a los informes, respaldos ni biblioteca. **Nueva conversación** descarta el contexto del chat. Recargar la pestaña o reiniciar el servicio inicia otra conversación; las sesiones del backend caducan después de una hora sin uso. Cada conversación admite hasta 40 mensajes y cada mensaje hasta 12 consultas de Jira. El chat escrito es la primera etapa; todavía no incluye voz.
+
+Archivos principales:
+
+| Archivo | Función |
+| --- | --- |
+| `src/jira-chat.js` | Panel, consultas sugeridas, estado de conexión y enlaces seguros. |
+| `scripts/jira/codex-chat.mjs` | Protocolo oficial App Server por stdio, sesión existente y conversaciones efímeras. |
+| `scripts/jira/chat-service.mjs` | Rutas `/api/chat/`, sesiones y control de consultas. |
+| `scripts/jira/chat-tools.mjs` | Usuario, búsqueda JQL, detalle e historial, proyectos y estados: solo GET. |
+| `scripts/jira/check-chat.mjs` | Diagnóstico local. `--smoke` consume una consulta de Codex y lee únicamente el usuario de Jira. |
+| `tests/jira-chat.test.mjs` | Verifica lectura, aislamiento de publicaciones, protocolo, sesiones y controles de origen. |
+
+La regla obligatoria de solo consulta está en `chatReadOnlyRule`, dentro de `scripts/jira/chat-tools.mjs`, y se suministra al asistente como instrucción de desarrollador. Prohíbe crear, editar, eliminar, cambiar estados o asignaciones y agregar comentarios o adjuntos, incluso si se solicita una excepción o se confirma una modificación. También se muestra un aviso permanente en el chat.
+
+El chat no expone las herramientas de publicación. Deshabilita los MCP y plugins heredados para sus conversaciones y usa herramientas de lectura suministradas por el backend, con terminal, navegador y escritura deshabilitados. Las preferencias globales de Codex y VS Code no se modifican; las credenciales no llegan al navegador ni se incluyen en el prompt.
+
+Se detecta `codex.exe` en la extensión de VS Code para Windows o se busca `codex` en PATH. Si hace falta, configurar `QA_CODEX_BIN` con su ruta absoluta en `.env.local`. El modelo se obtiene del catálogo de Codex; `QA_CHAT_MODEL` permite seleccionar explícitamente otro disponible. El inicio de sesión no garantiza que el proveedor habilite un modelo: la ejecución confirma el acceso efectivo. No copiar archivos de autenticación a la aplicación.
+
+Documentación: [Codex App Server](https://learn.chatgpt.com/docs/app-server). Una distribución alojada o comercial requiere revisar el mecanismo de [Sign in with ChatGPT](https://developers.openai.com/siwc/token-sharing-open-source/codex-app-server) correspondiente.
+
 ## Almacenamiento y actualizaciones
 
 La sincronización de la caché reconoce versiones ya guardadas en Historial y no las convierte en informes nuevos. Un borrador con la revisión vigente se guarda sobre su informe; un borrador divergente se recupera una sola vez, incluso si se reenvía desde varias pestañas. Las diferencias de fecha de actualización por sí solas no generan copias.

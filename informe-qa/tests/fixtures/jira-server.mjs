@@ -9,6 +9,7 @@ import {JiraPublications,jiraAPI} from '../../scripts/jira/publications.mjs';
 import {newReport,newStandaloneBug} from '../../src/model.js';
 import {defaultTemplate} from '../../src/templates.js';
 import {TemplateStore,templatesAPI} from '../../scripts/template-store.mjs';
+import {JiraChatService,chatAPI} from '../../scripts/jira/chat-service.mjs';
 const root=await mkdtemp(join(tmpdir(),'qa-jira-browser-')),reports=new ReportStore(root);
 const r=newReport();r.title='QA Jira - prueba aislada';r.app='Cobranza de facturas (CF)';r.version='1.3.9';r.ticket='TEST-123';
 if(process.env.HEADER_FIXTURE==='1')r.app='CU125 - Reporte Auditoria';
@@ -20,6 +21,7 @@ const independent=newStandaloneBug();Object.assign(independent.bug,{title:'Bug i
 let failAttachment=false;const calls=[],uploaded=new Map();
 const mcp={async call(name,args){
   calls.push(name);
+  if(name==='qaJiraChatRead')return {jql:args.args.jql,total:1,startAt:0,issues:[{key:'CF-123',summary:'Error de ejemplo <script>no ejecutar</script>',url:'https://jira.example.test/browse/CF-123',status:'Resolved',type:'Defecto',assignee:'QA'}]};
   if(name==='qaJiraMetadata'){
     const f=(id,name,values=[],required=true)=>({id,name,required,allowedValues:values.map(([id,name])=>({id,name})),schema:{}});
     return {projectKey:args.projectKey,user:{name:'qa'},attachments:{enabled:true,uploadLimit:1000000},fields:[f('summary','Resumen'),f('description','Descripción'),f('project','Proyecto'),f('issuetype','Tipo'),f('reporter','Informador'),f('components','Componente(s)',[['component','ABM Empresas']]),f('versions','Version(es) Afectadas',[['version','1.3.9']]),f('customfield_11206','Tipo de defecto',[['defect','Defecto'],['improvement','Mejora']]),f('customfield_10729','Criticidad',[['critical','Crítico'],['high','Alta']]),...(args.projectKey==='GUV'?[]:[f('customfield_10405','Ambiente',[['testing','Testing']])])]};
@@ -31,6 +33,7 @@ const mcp={async call(name,args){
 }};
 const storage=storageAPI(reports),jira=jiraAPI(new JiraPublications({root:join(root,'publications'),reports,mcp}));
 const templates=templatesAPI(new TemplateStore(join(root,'templates')));
+const chat=chatAPI(new JiraChatService({mcp,codex:{status:async()=>({connected:true,plan:'Prueba aislada'}),newThread:async()=>crypto.randomUUID(),forget:async()=>{},ask:async(id,text,tool)=>{const result=await tool('jira_search',{jql:'assignee=currentUser()'});return `Encontré ${result.total} ticket: CF-123. Está Resolved; el estado por sí solo no confirma devolución de Desarrollo.`;}}}));
 const server=http.createServer(async(req,res)=>{try{
   const url=new URL(req.url,'http://127.0.0.1:4312');let response;
   if(url.pathname==='/__test/state')response=Response.json({calls,uploaded:uploaded.size,reports:await reports.all()});
@@ -38,7 +41,7 @@ const server=http.createServer(async(req,res)=>{try{
   else{
     const chunks=[];for await(const chunk of req)chunks.push(chunk);
     const request=new Request(url,{method:req.method,headers:req.headers,...(!['GET','HEAD'].includes(req.method)?{body:Buffer.concat(chunks)}:{})});
-    response=url.pathname.startsWith('/api/jira/')?await jira(request):url.pathname.startsWith('/api/storage/')?await storage(request):url.pathname==='/api/templates'?await templates(request):await worker.fetch(request);
+    response=url.pathname.startsWith('/api/chat/')?await chat(request):url.pathname.startsWith('/api/jira/')?await jira(request):url.pathname.startsWith('/api/storage/')?await storage(request):url.pathname==='/api/templates'?await templates(request):await worker.fetch(request);
   }
   res.writeHead(response.status,Object.fromEntries(response.headers));res.end(Buffer.from(await response.arrayBuffer()));
 }catch(error){res.writeHead(500);res.end(error.message);}});
